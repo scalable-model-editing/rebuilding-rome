@@ -58,12 +58,14 @@ if __name__ == '__main__':
     axis_fontsize = 24
     legend_fontsize = 16
 
+    with open('data/disabling_edits_counterfact.json') as json_file:
+        selected_indices  = json.load(json_file)
 
     algo = 'ROME'
     run = 'run_000'
     save_location = 'downstream_eval/plots/' + algo + '/' + run + '/'
     os.makedirs(save_location, exist_ok=True)
-    data_location = 'results/' + algo + '/' + run + '/'
+    data_location = '/home/akshatgupta/KnowledgeEditing/model-editing/results/' + algo + '/' + run + '/'
 
 
     distance_files = {}
@@ -79,6 +81,9 @@ if __name__ == '__main__':
             with open(file_loc, "r") as f:
                 data = json.load(f)
 
+            if not selected_indices[str(data['case_id'])]:
+                continue
+
             #collect variables
             sample_entropy, sample_normalized_entropy = get_generation_entropy(data)
 
@@ -86,13 +91,13 @@ if __name__ == '__main__':
             entropy.append(sample_entropy)
             entropy_files[filename] = sample_normalized_entropy
 
-            for layer in data['distance_from_original']:
+            for layer in data['distance']:
                 if layer not in distances:
                     distances[layer] = []
                     distance_files[layer] = {}
 
-                distances[layer].append(data['distance_from_original'][layer])
-                distance_files[layer][filename] = data['distance_from_original'][layer]
+                distances[layer].append(data['distance'][layer])
+                distance_files[layer][filename] = data['distance'][layer]
 
     for layer in distances:
         plt.scatter(distances[layer], normalized_entropy, color = 'r')

@@ -216,31 +216,20 @@ def execute_memit(
         )
 
         #####CALCULATING UNIFIED EDITING UPDATES
-        assert alg_name in ['ROME', 'MEMIT', 'EMMET'], 'Unified Editing only applicable for ROME and MEMIT'
+        assert alg_name in ['ROME', 'MEMIT'], 'Unified Editing only applicable for ROME and MEMIT'
+
         if alg_name == 'ROME':
             C_inv = torch.inverse(cov)
             adj_k = ((layer_ks.T @ C_inv) / (layer_ks.T @ C_inv @ layer_ks)).T #writing in MEMIT code form
 
+
         if alg_name == 'MEMIT':
             ###NOTE - The past memory term is scaled by hparams.mom2_update_weight or sqrt of it. 
             adj_k = torch.linalg.solve(
-                hparams.mom2_update_weight * cov + layer_ks @ layer_ks.T,
+                hparams.mom2_update_weight * cov.double() + layer_ks @ layer_ks.T,
                 layer_ks,
             )
 
-        if alg_name == 'EMMET':
-            #Adding batched_rome objective
-            cov =  hparams.mom2_update_weight * cov #To be equivalents to MEMIT
-
-            #calculate C_inv
-            C_inv = torch.inverse(cov)
-            D = layer_ks.T @ C_inv @ layer_ks
-            try:
-                D_inv = torch.inverse(D)
-            except:
-                D_inv = torch.linalg.pinv(D)
-
-            adj_k = (D_inv @ layer_ks.T  @ C_inv).T #Only to write it in memit form
         ######FINISHING CALCULATING UNIFIED EDITING UPDATES
 
 

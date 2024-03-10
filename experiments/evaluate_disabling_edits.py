@@ -9,7 +9,7 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing_crtx/disabling-edits')
+sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits')
 from baselines.ft import FTHyperParams, apply_ft_to_model
 from baselines.mend import MENDHyperParams, MendRewriteExecutor
 from dsets import (
@@ -46,6 +46,7 @@ def main(
     skip_generation_tests: bool,
     generation_test_interval: int,
     conserve_memory: bool,
+    sequential: bool,
     dir_name: str,
     num_edits: int = 1,
     use_cache: bool = False,
@@ -150,11 +151,17 @@ def main(
         with open('data/disabling_edits_zsre.json') as json_file:
             selected_indices  = json.load(json_file)
 
+    # Iterate through dataset
+    glue_save_location = str(run_dir) + '/' + 'glue_eval/'
+    os.makedirs(glue_save_location, exist_ok=True)
 
     # Iterate through dataset
+    count = 0
     for r, record_chunks in enumerate(chunks(ds, num_edits)):
         if not selected_indices[str(record_chunks[0]["case_id"])]:
             continue
+
+        count += 1
 
         case_result_template = str(run_dir / "{}_edits-case_{}.json")
         # Is the chunk already done?
@@ -231,12 +238,45 @@ def main(
             with open(out_file, "w") as f:
                 json.dump(metrics, f, indent=1)
 
+        if sequential and count == 1:#do initial GLUE EVAL WITH ORIGINAL MODEL
+            glue_results = {}
+
+            out_file = glue_save_location + "base.json"
+            glue_eval = GLUEEval(model.cuda(), tok)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
+
+            #store the individual overall result file
+            output_filename = out_file.replace('.json', '_glue.json')
+            with open(output_filename, "w") as f:
+                json.dump(glue_results, f, indent=4)
 
 
-        # Restore original weights
-        with torch.no_grad():
-            for k, v in weights_copy.items():
-                nethook.get_parameter(model, k)[...] = v.to("cuda")
+
+        if sequential and count % 20 == 0:
+            #Do GLUE EVALUATION
+            distance = get_model_distance(original_model, edited_model, hparams)
+
+            glue_results = {
+                'edit_num': r,
+                'case_id': case_ids,
+                }
+
+            out_file = glue_save_location + "case_{}.json".format(record["case_id"])#stores the last case ID of the batch
+            glue_eval = GLUEEval(model, tok)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
+            
+            #store the individual overall result file
+            output_filename = out_file.replace('.json', '_glue.json')
+            with open(output_filename, "w") as f:
+                json.dump(glue_results, f, indent=4)
+
+
+
+        if not sequential:
+            # Restore original weights
+            with torch.no_grad():
+                for k, v in weights_copy.items():
+                    nethook.get_parameter(model, k)[...] = v.to("cuda")
 
         print("Evaluation took", time() - start)
         
@@ -353,6 +393,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Use cached k/v pairs",
     )
+    parser.add_argument(
+        "--sequential",
+        type=bool,
+        default=False,
+        help="If we want to do sequential editing or not",
+    )
     parser.set_defaults(skip_generation_tests=False, conserve_memory=False)
     args = parser.parse_args()
 
@@ -366,6 +412,7 @@ if __name__ == "__main__":
         args.skip_generation_tests,
         args.generation_test_interval,
         args.conserve_memory,
+        args.sequential,
         dir_name=args.alg_name,
         num_edits=args.num_edits,
         use_cache=args.use_cache,

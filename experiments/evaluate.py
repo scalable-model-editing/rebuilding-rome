@@ -4,11 +4,12 @@ from itertools import islice
 from time import time
 from typing import Tuple, Union
 import sys
+import os
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing/model-editing')
+sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits')
 from baselines.ft import FTHyperParams, apply_ft_to_model
 from baselines.mend import MENDHyperParams, MendRewriteExecutor
 from dsets import (
@@ -24,6 +25,8 @@ from memit import MEMITHyperParams, apply_memit_to_model
 from rome import ROMEHyperParams, apply_rome_to_model
 from util import nethook
 from util.globals import *
+
+from glue_eval.glue_eval import GLUEEval
 
 ALG_DICT = {
     "MEMIT": (MEMITHyperParams, apply_memit_to_model),
@@ -49,6 +52,7 @@ def main(
     skip_generation_tests: bool,
     generation_test_interval: int,
     conserve_memory: bool,
+    sequential: bool,
     dir_name: str,
     num_edits: int = 1,
     use_cache: bool = False,
@@ -105,6 +109,7 @@ def main(
     if type(model_name) is str:
         print("Instantiating model")
         model = AutoModelForCausalLM.from_pretrained(model_name).cuda()
+        original_model = AutoModelForCausalLM.from_pretrained(model_name)
         tok = AutoTokenizer.from_pretrained(model_name)
         tok.pad_token = tok.eos_token
     else:
@@ -132,8 +137,27 @@ def main(
         )
         print(f"Will load cache from {cache_template}")
 
+    # load selected edits
+    if ds_name == 'cf':
+        with open('data/disabling_edits_counterfact.json') as json_file:
+            selected_indices  = json.load(json_file)
+        #selected_indices = json.loads('data/disabling_edits_counterfact.json')
+    elif ds_name == 'zsre':
+        with open('data/disabling_edits_zsre.json') as json_file:
+            selected_indices  = json.load(json_file)
+
     # Iterate through dataset
-    for record_chunks in chunks(ds, num_edits):
+    glue_save_location = str(run_dir) + '/' + 'glue_eval/'
+    os.makedirs(glue_save_location, exist_ok=True)
+
+    count = 0
+    # Iterate through dataset
+    for r, record_chunks in enumerate(chunks(ds, num_edits)):
+        if not selected_indices[str(record_chunks[0]["case_id"])]:
+            continue
+
+        count += 1
+
         case_result_template = str(run_dir / "{}_edits-case_{}.json")
 
         # Is the chunk already done?
@@ -183,6 +207,8 @@ def main(
                 print(f"Skipping {out_file}; already exists")
                 continue
 
+            distance = get_model_distance(original_model, edited_model, hparams)
+
             metrics = {
                 "case_id": record["case_id"],
                 "grouped_case_ids": case_ids,
@@ -199,18 +225,70 @@ def main(
                         else [None, None]
                     ),  # Only test generation every generation_test_interval cases
                 ),
+                'distance_from_original': distance,
             }
 
             # Dump metrics in .json
             with open(out_file, "w") as f:
                 json.dump(metrics, f, indent=1)
 
-        # Restore original weights
-        with torch.no_grad():
-            for k, v in weights_copy.items():
-                nethook.get_parameter(model, k)[...] = v.to("cuda")
+        if sequential and count == 1:#do initial GLUE EVAL WITH ORIGINAL MODEL
+            glue_results = {}
+
+            out_file = glue_save_location + "base.json"
+            glue_eval = GLUEEval(model.cuda(), tok)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
+
+            #store the individual overall result file
+            output_filename = out_file.replace('.json', '_glue.json')
+            with open(output_filename, "w") as f:
+                json.dump(glue_results, f, indent=4)
+
+
+
+        if sequential and count % 20 == 0:
+            #Do GLUE EVALUATION
+            distance = get_model_distance(original_model, edited_model, hparams)
+
+            glue_results = {
+                'edit_num': r,
+                'case_id': case_ids,
+                }
+
+            out_file = glue_save_location + "case_{}.json".format(record["case_id"])#stores the last case ID of the batch
+            glue_eval = GLUEEval(model, tok)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
+            
+            #store the individual overall result file
+            output_filename = out_file.replace('.json', '_glue.json')
+            with open(output_filename, "w") as f:
+                json.dump(glue_results, f, indent=4)
+
+        if not sequential:
+            # Restore original weights
+            with torch.no_grad():
+                for k, v in weights_copy.items():
+                    nethook.get_parameter(model, k)[...] = v.to("cuda")
 
         print("Evaluation took", time() - start)
+
+
+
+def get_model_distance(original_model, model_new, model_hpar):
+    state_dict_original = original_model.state_dict()
+    state_dict_new = model_new.state_dict()
+
+    distances_dict = {}
+    for layer in model_hpar.layers:
+        if isinstance(layer, str) and 'transformer' in layer:
+            rewrite_layer = layer
+        else:
+            rewrite_layer = model_hpar.rewrite_module_tmp.format(str(layer)) + '.weight'
+
+        distance = torch.norm(state_dict_original[rewrite_layer] - state_dict_new[rewrite_layer].cpu()) / state_dict_original[rewrite_layer].numel()
+        distances_dict[layer] = distance.detach().cpu().item()
+    
+    return distances_dict
 
 
 def window(seq, n=2):
@@ -238,7 +316,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--alg_name",
         choices=["MEMIT", "ROME", "FT", "MEND"],
-        default="MEMIT",
+        default="ROME",
         help="Editing algorithm to use. Results are saved in results/<alg_name>/<run_id>, "
         "where a new run_id is generated on each run. "
         "If continuing from previous run, specify the run_id in --continue_from_run.",
@@ -308,6 +386,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Use cached k/v pairs",
     )
+    parser.add_argument(
+        "--sequential",
+        type=bool,
+        default=False,
+        help="If we want to do sequential editing or not",
+    )
     parser.set_defaults(skip_generation_tests=False, conserve_memory=False)
     args = parser.parse_args()
 
@@ -321,6 +405,7 @@ if __name__ == "__main__":
         args.skip_generation_tests,
         args.generation_test_interval,
         args.conserve_memory,
+        args.sequential,
         dir_name=args.alg_name,
         num_edits=args.num_edits,
         use_cache=args.use_cache,

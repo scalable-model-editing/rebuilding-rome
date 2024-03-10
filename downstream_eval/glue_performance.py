@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
 
     algo = 'ROME'
-    run = 'run_022'
+    run = 'run_013'
     save_location = 'downstream_eval/' + algo + '_' + run + '/'
     os.makedirs(save_location, exist_ok=True)
     data_location = 'results/' + algo + '/' + run + '/glue_eval/'
@@ -38,8 +38,33 @@ if __name__ == '__main__':
             with open(file_loc, "r") as f:
                 data = json.load(f)
 
-            edit_num = data['edit_num'] + 1
-            sample_num = data['sample_num']
+            if 'base' in filename:
+                edit_num = 0
+            else:
+                edit_num = data['edit_num'] + 1
+            #sample_num = data['sample_num']
+
+            #plot distance data
+            '''for layer in data['distance_from_original']:
+                if layer not in glue_eval['distance']:
+                    glue_eval['distance'][layer] = {}
+
+                glue_eval['distance'][layer][edit_num] = data['distance_from_original'][layer]'''
+
+            for task in task_names:
+                if task in data:
+                    for metric in metric_names:
+                        glue_eval[task][metric][int(edit_num)] = data[task][metric]
+
+    distance_data_location = 'results/' + algo + '/' + run + '/'
+    for filename in os.listdir(distance_data_location):
+        file_loc = distance_data_location + filename
+        if '.json' in filename and filename != 'params.json':
+            with open(file_loc, "r") as f:
+                data = json.load(f)
+
+            edit_num = data['case_id']
+            #sample_num = data['sample_num']
 
             #plot distance data
             for layer in data['distance_from_original']:
@@ -48,10 +73,6 @@ if __name__ == '__main__':
 
                 glue_eval['distance'][layer][edit_num] = data['distance_from_original'][layer]
 
-            for task in task_names:
-                if task in data:
-                    for metric in metric_names:
-                        glue_eval[task][metric][int(edit_num)] = data[task][metric]
 
     task_dict = {'sst':'SST2', 'mrpc':'MRPC', 'cola':'COLA', 'rte':'NLI'}
     run_title = {}
@@ -63,8 +84,10 @@ if __name__ == '__main__':
             sorted_dict = sorted(glue_eval[task][metric].items(), key=lambda item: item[0])
 
             x, y = [], []
+            count = 0
             for edit_num, correct in sorted_dict:
-                x.append(edit_num)
+                x.append(count * 20)
+                count += 1
                 if metric in ['f1', 'accuracy']:
                     y.append(correct * 100)
                 else:
@@ -98,8 +121,10 @@ if __name__ == '__main__':
         sorted_dict = sorted(glue_eval[metric][layer].items(), key=lambda item: item[0])
 
         x, y = [], []
+        count = 0
         for edit_num, correct in sorted_dict:
-            x.append(edit_num)
+            count += 1
+            x.append(count)
             y.append(correct)
 
         x_store.append(x)
@@ -129,5 +154,5 @@ if __name__ == '__main__':
             
     #print(len(y))
     #print(y)
-    save_data(algo + sample_num + '_distance.pkl', [x_store,y_store])
+    #save_data(algo + '_distance.pkl', [x_store,y_store])
     #plot glue performance as a function of number of edits
