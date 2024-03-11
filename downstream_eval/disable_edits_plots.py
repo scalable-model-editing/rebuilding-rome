@@ -2,8 +2,11 @@ import os
 import sys
 import json
 import math
+import seaborn as sns
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import FuncFormatter
 
 sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits')
 from useful_functions import save_data
@@ -48,6 +51,9 @@ def get_generation_entropy(data):
 
     return entropy, normalized_entropy
 
+# Create a custom formatter function
+def decimal_formatter(x, pos):
+    return f'{x:.1e}'  # Adjust the number of decimal places as needed
 
 
 if __name__ == '__main__':
@@ -95,20 +101,24 @@ if __name__ == '__main__':
                 distance_files[layer][filename] = data['distance_from_original'][layer]
 
     for layer in distances:
-        plt.scatter(distances[layer], normalized_entropy, color = 'r')
+        #plt.scatter(distances[layer], normalized_entropy, color = 'r')
+        data = pd.DataFrame({'Normalized Distance': distances[layer], 'Normalized Entropy': normalized_entropy})
+        sns.scatterplot(x='Normalized Distance', y='Normalized Entropy', data=data, s=200)
 
-        plt.xlabel('Normalized Distance', fontsize=axis_fontsize)
+        plt.xlabel('|Delta|', fontsize=axis_fontsize)
         plt.ylabel('Normalized Entropy', fontsize=axis_fontsize)
         plt.tick_params(axis='x', labelsize=x_tick_size)
         plt.tick_params(axis='y', labelsize=y_tick_size)
+        plt.ylim(0, 1)
         plt.tight_layout()
 
         # Format the x-axis ticks
         ax = plt.gca()
-        formatter = ScalarFormatter(useMathText=True)
-        formatter.set_scientific(True)
-        formatter.set_powerlimits((-1,1))
-        ax.xaxis.set_major_formatter(formatter)
+        #formatter = ScalarFormatter(useMathText=True)
+        #formatter.set_scientific(True)
+        #formatter.set_powerlimits((-1,1))
+        #ax.xaxis.set_major_formatter(formatter)
+        ax.xaxis.set_major_formatter(FuncFormatter(decimal_formatter))
 
         plt.savefig(save_location + 'disabling_normalized_entropy_layer_{}.png'.format(layer))
         plt.close()

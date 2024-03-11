@@ -325,14 +325,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         choices=["gpt2-medium", "gpt2-large", "gpt2-xl", "EleutherAI/gpt-j-6B"],
-        default="gpt2-xl",
+        default="EleutherAI/gpt-j-6B",
         help="Model to edit.",
         required=False,
     )
     parser.add_argument(
         "--hparams_fname",
         type=str,
-        default="gpt2-xl.json",
+        default="EleutherAI_gpt-j-6B.json",
         help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
         required=False,
     )

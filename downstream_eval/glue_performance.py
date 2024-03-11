@@ -2,9 +2,16 @@ import os
 import sys
 import json
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import FuncFormatter
 
 sys.path.append('/home/akshatgupta/KnowledgeEditing/model-editing')
 from useful_functions import save_data
+
+# Create a custom formatter function
+def decimal_formatter(x, pos):
+    return f'{x:.1e}'  # Adjust the number of decimal places as needed
+
 
 if __name__ == '__main__':
     x_tick_size = 22
@@ -26,7 +33,7 @@ if __name__ == '__main__':
 
 
     algo = 'ROME'
-    run = 'run_013'
+    run = 'run_011'
     save_location = 'downstream_eval/' + algo + '_' + run + '/'
     os.makedirs(save_location, exist_ok=True)
     data_location = 'results/' + algo + '/' + run + '/glue_eval/'
@@ -100,7 +107,7 @@ if __name__ == '__main__':
         if metric == 'correct':
             metric = 'accuracy'
         plt.ylabel(metric.upper(), fontsize=axis_fontsize)
-        #plt.xlim(0, x_lim)
+        plt.xlim(0, x_lim)
         plt.ylim(0, y_lim)
         plt.tick_params(axis='x', labelsize=x_tick_size)
         plt.tick_params(axis='y', labelsize=y_tick_size)
@@ -140,11 +147,16 @@ if __name__ == '__main__':
         
     plt.legend(fontsize=legend_fontsize)
     plt.xlabel('Number of Edits', fontsize=axis_fontsize)
-    plt.ylabel('Normalized Distance', fontsize=axis_fontsize)
-    #plt.xlim(0, x_lim)
+    plt.ylabel('|Delta|', fontsize=axis_fontsize)
+    plt.xlim(0, x_lim)
     plt.tick_params(axis='x', labelsize=x_tick_size)
     plt.tick_params(axis='y', labelsize=y_tick_size)
+    
+    ax = plt.gca()
+    ax.yaxis.set_major_formatter(FuncFormatter(decimal_formatter))
+
     plt.tight_layout()
+
 
     if run in run_title:
         plt.savefig(save_location + algo + '_' + 'distance_' + run_title[run] + '.png')
