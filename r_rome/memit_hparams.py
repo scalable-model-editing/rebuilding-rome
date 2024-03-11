@@ -5,7 +5,7 @@ from util.hparams import HyperParams
 
 
 @dataclass
-class UNIFIEDHyperParams(HyperParams):
+class R_ROMEHyperParams(HyperParams):
     # Method
     layers: List[int]
     layer_selection: Literal["all", "random"]

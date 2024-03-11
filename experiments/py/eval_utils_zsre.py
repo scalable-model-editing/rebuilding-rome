@@ -13,7 +13,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import sys
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits/experiments/py') 
+#sys.path.append('/path/to/rebuilding-rome/experiments/py') 
 from eval_utils_counterfact import *
 
 from dsets import AttributeSnippets

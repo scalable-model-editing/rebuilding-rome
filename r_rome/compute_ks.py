@@ -5,14 +5,14 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .compute_z import get_module_input_output_at_words
-from .memit_hparams import MEMITHyperParams
+from .memit_hparams import R_ROMEHyperParams
 
 
 def compute_ks(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
     requests: Dict,
-    hparams: MEMITHyperParams,
+    hparams: R_ROMEHyperParams,
     layer: int,
     context_templates: List[str],
 ):

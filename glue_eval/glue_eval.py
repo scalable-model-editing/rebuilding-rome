@@ -1,7 +1,6 @@
 import sys
 import json
 
-sys.path.append('/home/anuragrao/model-editing')
 from glue_eval.sst_eval import SSTEval
 from glue_eval.mrpc_eval import MRPCEval
 from glue_eval.cola_eval import COLAEval

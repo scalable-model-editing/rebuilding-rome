@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from scipy.stats import hmean
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits')
+#sys.path.append('/path/to/rebuilding-rome')
 from util.globals import *
 
 

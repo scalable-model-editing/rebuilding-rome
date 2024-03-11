@@ -7,14 +7,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from rome import repr_tools
 from util import nethook
 
-from .memit_hparams import MEMITHyperParams
+from .memit_hparams import R_ROMEHyperParams
 
 
 def compute_z(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
     request: Dict,
-    hparams: MEMITHyperParams,
+    hparams: R_ROMEHyperParams,
     layer: int,
     context_templates: List[str],
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -39,6 +39,14 @@ def compute_z(
     target_ids = tok(request["target_new"]["str"], return_tensors="pt").to("cuda")[
         "input_ids"
     ][0]
+
+    
+
+    if 'llama' in model.config._name_or_path.lower():
+        target_ids = target_ids[2:]
+    elif target_ids[0] == tok.bos_token_id or target_ids[0] == tok.unk_token_id:
+        target_ids = target_ids[1:]
+
 
     # Compile list of rewriting and KL x/y pairs
     rewriting_prompts, kl_prompts = [
@@ -78,10 +86,12 @@ def compute_z(
     # Set up an optimization over a latent vector that, when output at the
     # rewrite layer, i.e. hypothesized fact lookup location, will induce the
     # target token to be predicted at the final layer.
-    try:#for llama model
-        delta = torch.zeros((model.config.n_embd,), requires_grad=True, device="cuda")
-    except:
-        delta = torch.zeros((model.config.hidden_size,), requires_grad=True, device="cuda")
+    if hasattr(model.config, 'n_embd'):
+        delta = torch.zeros((model.config.n_embd,), requires_grad=True, device=model.device)
+    elif hasattr(model.config, 'hidden_size'):
+        delta = torch.zeros((model.config.hidden_size,), requires_grad=True, device=model.device)
+    else:
+        raise NotImplementedError
     target_init, kl_distr_init = None, None
 
     # Inserts new "delta" variable at the appropriate part of the computation

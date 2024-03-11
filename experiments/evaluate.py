@@ -9,7 +9,7 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing_local/disabling-edits')
+#sys.path.append('/path/to/rebuilding-rome')
 from baselines.ft import FTHyperParams, apply_ft_to_model
 from baselines.mend import MENDHyperParams, MendRewriteExecutor
 from dsets import (
@@ -315,7 +315,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--alg_name",
-        choices=["MEMIT", "ROME", "FT", "MEND"],
+        choices=["ROME"],
         default="ROME",
         help="Editing algorithm to use. Results are saved in results/<alg_name>/<run_id>, "
         "where a new run_id is generated on each run. "
@@ -325,14 +325,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         choices=["gpt2-medium", "gpt2-large", "gpt2-xl", "EleutherAI/gpt-j-6B"],
-        default="EleutherAI/gpt-j-6B",
+        default="gpt2-xl",
         help="Model to edit.",
         required=False,
     )
     parser.add_argument(
         "--hparams_fname",
         type=str,
-        default="EleutherAI_gpt-j-6B.json",
+        default="gpt2-xl.json",
         help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
         required=False,
     )

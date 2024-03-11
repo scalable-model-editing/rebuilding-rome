@@ -1,16 +1,15 @@
 import json
 import shutil
 from itertools import islice
-import time
+from time import time
 from typing import Tuple, Union
 import sys
 import os
-from types import SimpleNamespace
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-sys.path.append('/home/akshatgupta/KnowledgeEditing/model-editing') 
+#sys.path.append('/path/to/rebuilding-rome')
 from baselines.ft import FTHyperParams, apply_ft_to_model
 from baselines.mend import MENDHyperParams, MendRewriteExecutor
 from dsets import (
@@ -22,20 +21,12 @@ from dsets import (
 )
 from experiments.py.eval_utils_counterfact import compute_rewrite_quality_counterfact
 from experiments.py.eval_utils_zsre import compute_rewrite_quality_zsre
-from memit import MEMITHyperParams, apply_memit_to_model
 from rome import ROMEHyperParams, apply_rome_to_model
-from dsets.counterfact import CounterFactDataset
+from r_rome import R_ROMEHyperParams, apply_r_rome_to_model
 from util import nethook
 from util.globals import *
 
 from glue_eval.glue_eval import GLUEEval
-
-ALG_DICT = {
-    "MEMIT": (MEMITHyperParams, apply_memit_to_model),
-    "ROME": (ROMEHyperParams, apply_rome_to_model),
-    "FT": (FTHyperParams, apply_ft_to_model),
-    "MEND": (MENDHyperParams, MendRewriteExecutor().apply_to_model),
-}
 
 DS_DICT = {
     "mcf": (MultiCounterFactDataset, compute_rewrite_quality_counterfact),
@@ -45,7 +36,6 @@ DS_DICT = {
 
 
 def main(
-    args,
     alg_name: str,
     model_name: Union[str, Tuple],
     hparams_fname: str,
@@ -55,13 +45,18 @@ def main(
     skip_generation_tests: bool,
     generation_test_interval: int,
     conserve_memory: bool,
+    sequential: bool,
     dir_name: str,
     num_edits: int = 1,
     use_cache: bool = False,
-    model_save_location: str = None
 ):
+    if alg_name == 'ROME':
+        assert num_edits == 1, 'r-rome editing with ROME is only applicable for singular edits. Batched edits with ROME are not allowed.'
+
+    assert num_edits == 1, 'Disabling edits are looked at single edit algorithms for ROME and MEMIT'
+
     # Set algorithm-specific variables
-    params_class, apply_algo = ALG_DICT[alg_name]
+    params_class, apply_algo = R_ROMEHyperParams, apply_r_rome_to_model
 
     # Determine run directory
     # Create new dir if not continuing from prev run OR prev run doesn't exist
@@ -83,26 +78,41 @@ def main(
             run_id = 0
         run_dir = RESULTS_DIR / dir_name / f"run_{str(run_id).zfill(3)}"
         run_dir.mkdir(parents=True, exist_ok=True)
-    else: run_id = int(continue_from_run.split("_")[-1]) # for previous runs
     print(f"Results will be stored at {run_dir}")
-    print(run_id)
 
     # Get run hyperparameters
     params_path = (
         run_dir / "params.json"
         if continue_from_run is not None
-        else HPARAMS_DIR / alg_name / hparams_fname
+        else HPARAMS_DIR / "UNIFIED" / hparams_fname
     )
-    hparams = params_class.from_json(params_path)
+
+    try:
+        hparams = params_class.from_json(params_path)
+    except:
+        params_path = HPARAMS_DIR / "UNIFIED" / hparams_fname
+        hparams = params_class.from_json(params_path)
+
     if not (run_dir / "params.json").exists():
-        shutil.copyfile(params_path, run_dir / "params.json")
+        #shutil.copyfile(params_path, run_dir / "params.json")
+        ####ADDING HPARAMETERS TO SAVE
+        hparams_to_save = hparams.__dict__
+        hparams_to_save['model_name'] = model_name
+        hparams_to_save['algo_name'] = alg_name
+        hparams_to_save['dataset'] = ds_name
+        hparams_to_save['n_edits'] = num_edits
+        
+        with open(run_dir / "params.json", "w") as f:
+            json.dump(hparams_to_save, f, indent=1)
+
+            
     print(f"Executing {alg_name} with parameters {hparams}")
 
     # Instantiate vanilla model
     if type(model_name) is str:
         print("Instantiating model")
         model = AutoModelForCausalLM.from_pretrained(model_name).cuda()
-        original_model = AutoModelForCausalLM.from_pretrained(model_name)#.cuda()
+        original_model = AutoModelForCausalLM.from_pretrained(model_name)
         tok = AutoTokenizer.from_pretrained(model_name)
         tok.pad_token = tok.eos_token
     else:
@@ -130,31 +140,27 @@ def main(
         )
         print(f"Will load cache from {cache_template}")
 
-    #load indices file and initialize dataset class
-    if ds_name == 'cf':
-        indices_filename = 'counterfact_sampled_unique_10_20391.json'
-        dataset = CounterFactDataset('data')
-    elif ds_name == 'zsre':
-        indices_filename = 'zsre_sampled_unique_10_10720.json'
-        dataset = MENDQADataset('data', tok)
 
-    f = open(indices_filename)
-    sampled_indices = json.load(f)
+    # load selected edits
+    if ds_name == 'cf':
+        with open('data/disabling_edits_counterfact.json') as json_file:
+            selected_indices  = json.load(json_file)
+        #selected_indices = json.loads('data/disabling_edits_counterfact.json')
+    elif ds_name == 'zsre':
+        with open('data/disabling_edits_zsre.json') as json_file:
+            selected_indices  = json.load(json_file)
 
     # Iterate through dataset
     glue_save_location = str(run_dir) + '/' + 'glue_eval/'
     os.makedirs(glue_save_location, exist_ok=True)
 
-    edits_so_far = []
-    memory_tracker = {key: [] for key in ['max_memory', 'memory']}
-    for e in range(0, len(sampled_indices[args.sample_num]), num_edits):
-        if e >= 1000: break # run sample on smaller dataset
+    # Iterate through dataset
+    count = 0
+    for r, record_chunks in enumerate(chunks(ds, num_edits)):
+        if not selected_indices[str(record_chunks[0]["case_id"])]:
+            continue
 
-        record_chunks = []
-        for element_index in sampled_indices[args.sample_num][e: min(e+num_edits, len(sampled_indices[args.sample_num]))]:
-            datapoint = dataset.__getitem__(element_index)
-            record_chunks.append(datapoint)
-            edits_so_far.append(datapoint)
+        count += 1
 
         case_result_template = str(run_dir / "{}_edits-case_{}.json")
         # Is the chunk already done?
@@ -177,8 +183,9 @@ def main(
         )
         etc_args = dict(cache_template=cache_template) if any(alg in alg_name for alg in ["ROME", "MEMIT"]) else dict()
 
-        start = time.time()
-        edited_model, weights_copy = apply_algo(
+        start = time()
+        edited_model, weights_copy, objective_distances = apply_algo(
+            alg_name,
             model,
             tok,
             [
@@ -191,31 +198,20 @@ def main(
             **args_conserve_memory,
             **etc_args,
         )
-        exec_time = time.time() - start
+
+        exec_time = time() - start
         print("Execution took", exec_time)
 
-        if alg_name == 'MEND':
-            mend_factors = weights_copy[1]
-            weights_copy = weights_copy[0]            
-
-            hparams_distance = {'layers':[]}
-            for layer in mend_factors.keys():
-                if 'transformer' in layer:
-                    hparams_distance['layers'].append(layer[:-2])
-
-            hparams_distance['layers'] = list(set(hparams_distance['layers']))
-            hparams_distance = SimpleNamespace(**hparams_distance)
-        else:
-            hparams_distance = hparams
-
-        ###### Evaluate new model
-        start = time.time()
+        # Evaluate new model
+        start = time()
         gen_test_vars = [snips, vec]
         for record in record_chunks:
             out_file = Path(case_result_template.format(num_edits, record["case_id"]))
             if out_file.exists():
                 print(f"Skipping {out_file}; already exists")
                 continue
+
+            distance = get_model_distance(original_model, edited_model, hparams)
 
             metrics = {
                 "case_id": record["case_id"],
@@ -233,33 +229,20 @@ def main(
                         else [None, None]
                     ),  # Only test generation every generation_test_interval cases
                 ),
+                'distance_from_original': distance,
+                'objective_distances': objective_distances,
             }
 
             # Dump metrics in .json
             with open(out_file, "w") as f:
                 json.dump(metrics, f, indent=1)
 
-        print("Evaluation took", time.time() - start)
+        if sequential and count == 1:#do initial GLUE EVAL WITH ORIGINAL MODEL
+            glue_results = {}
 
-        if e == 0:#do initial GLUE EVAL WITH ORIGINAL MODEL
-            distance = get_model_distance(original_model, original_model, hparams_distance)
-            edited_model.cpu()#off load edited model from gpu for this evaluation
-
-            glue_results = {
-                'sample_num': args.sample_num,
-                'edit_num': -1,
-                'element_index': -1,
-                'case_id': -1,
-                'distance_from_original': distance,
-                }
-
-            out_file = glue_save_location + str(-1) + '_' + "base.json"
-            glue_eval = GLUEEval(original_model.cuda(), tok)
-            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = args.sst_eval, mrpc_flag = args.mrpc_eval, cola_flag=args.cola_eval, rte_flag=args.rte_eval)
-            
-            #off load original model from GPU, load edited model back to gpu
-            original_model.cpu()
-            edited_model.cuda()
+            out_file = glue_save_location + "base.json"
+            glue_eval = GLUEEval(model.cuda(), tok)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
 
             #store the individual overall result file
             output_filename = out_file.replace('.json', '_glue.json')
@@ -268,45 +251,50 @@ def main(
 
 
 
-        #####GLUE EVALUATION CODES
-        if e != 0 and e % args.glue_eval_interval == 0:
-            distance = get_model_distance(original_model, edited_model, hparams_distance)
+        if sequential and count % 20 == 0:
+            #Do GLUE EVALUATION
+            distance = get_model_distance(original_model, edited_model, hparams)
 
-            model = edited_model
             glue_results = {
-                'sample_num': args.sample_num,
-                'edit_num': e,
-                'element_index': element_index,
-                'case_id': record['case_id'],
-                'distance_from_original': distance,
+                'edit_num': r,
+                'case_id': case_ids,
                 }
 
-            out_file = glue_save_location + str(e) + '_' + "case_{}.json".format(record["case_id"])
+            out_file = glue_save_location + "case_{}.json".format(record["case_id"])#stores the last case ID of the batch
             glue_eval = GLUEEval(model, tok)
-            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = args.sst_eval, mrpc_flag = args.mrpc_eval, cola_flag=args.cola_eval, rte_flag=args.rte_eval)
+            glue_results = glue_eval.evaluate(glue_results, out_file, sst_flag = True, mrpc_flag = True, cola_flag=True, rte_flag=True)
             
             #store the individual overall result file
             output_filename = out_file.replace('.json', '_glue.json')
             with open(output_filename, "w") as f:
                 json.dump(glue_results, f, indent=4)
 
-        if e != 0 and e % args.model_save_interval == 0:
-            if model_save_location is None:
-                model_save_folder = '/data/anuragrao/edited_models/' + alg_name + '/' + f"run_{str(run_id).zfill(3)}" + '/edits_' + str(e + 1)
-            else:
-                print("Model storage location provided at " + model_save_location)
-                model_save_folder = model_save_location + alg_name + '/' + f"run_{str(run_id).zfill(3)}" + '/edits_' + str(e + 1)
-            os.makedirs(model_save_folder)
-            model.save_pretrained(model_save_folder)
 
-        memory_tracker['max_memory'].append(torch.cuda.max_memory_allocated())
-        memory_tracker['memory'].append(torch.cuda.memory_allocated())
 
-    memory_out_file = str(run_dir) + '/memory.json'
-    with open(memory_out_file, 'w') as f:
-        json.dump(memory_tracker, f)
+        if not sequential:
+            # Restore original weights
+            with torch.no_grad():
+                for k, v in weights_copy.items():
+                    nethook.get_parameter(model, k)[...] = v.to("cuda")
+
+        print("Evaluation took", time() - start)
+        
+
+def get_model_distance(original_model, model_new, model_hpar):
+    state_dict_original = original_model.state_dict()
+    state_dict_new = model_new.state_dict()
+
+    distances_dict = {}
+    for layer in model_hpar.layers:
+        if isinstance(layer, str) and 'transformer' in layer:
+            rewrite_layer = layer
+        else:
+            rewrite_layer = model_hpar.rewrite_module_tmp.format(str(layer)) + '.weight'
+
+        distance = torch.norm(state_dict_original[rewrite_layer] - state_dict_new[rewrite_layer].cpu()) / state_dict_original[rewrite_layer].numel()
+        distances_dict[layer] = distance.detach().cpu().item()
     
-
+    return distances_dict
 
 
 def window(seq, n=2):
@@ -326,37 +314,14 @@ def chunks(arr, n):
     for i in range(0, len(arr), n):
         yield arr[i : i + n]
 
-def get_model_distance(original_model, model_new, model_hpar):
-    state_dict_original = original_model.state_dict()
-    state_dict_new = model_new.state_dict()
-
-    distances_dict = {}
-    for layer in model_hpar.layers:
-        if isinstance(layer, str) and 'transformer' in layer:
-            rewrite_layer = layer
-        else:
-            rewrite_layer = model_hpar.rewrite_module_tmp.format(str(layer)) + '.weight'
-
-        distance = torch.norm(state_dict_original[rewrite_layer] - state_dict_new[rewrite_layer].cpu()) / state_dict_original[rewrite_layer].numel()
-        distances_dict[layer] = distance.detach().cpu().item()
-    
-    return distances_dict
-
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--sample_num",
-        type=str,   
-        default="3",
-        help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
-        required=False,
-    )
-    parser.add_argument(
         "--alg_name",
-        choices=["MEMIT", "ROME", "FT", "MEND"],
+        choices=["ROME"],
         default="ROME",
         help="Editing algorithm to use. Results are saved in results/<alg_name>/<run_id>, "
         "where a new run_id is generated on each run. "
@@ -366,62 +331,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         choices=["gpt2-medium", "gpt2-large", "gpt2-xl", "EleutherAI/gpt-j-6B"],
-        default= "gpt2-xl",
+        default="gpt2-xl",
         help="Model to edit.",
         required=False,
     )
     parser.add_argument(
         "--hparams_fname",
         type=str,
-        default= "gpt2-xl.json",
+        default="gpt2-xl.json",
         help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
         required=False,
     )
     parser.add_argument(
         "--ds_name",
-        choices=["mcf", "cf", "zsre"],
+        choices=["cf", "zsre"],
         default="cf",
         help="Dataset to perform evaluations on. Either CounterFact (cf), MultiCounterFact (mcf), or zsRE (zsre).",
-    )
-    parser.add_argument(
-        "--sst_eval",
-        type=bool,
-        default=True,
-        help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
-        required=False,
-    )
-    parser.add_argument(
-        "--mrpc_eval",
-        type=bool,
-        default=True,
-        help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
-        required=False,
-    )
-    parser.add_argument(
-        "--cola_eval",
-        type=bool,
-        default=True,
-        help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
-        required=False,
-    )
-    parser.add_argument(
-        "--rte_eval",
-        type=bool,
-        default=True,
-        help="Name of hyperparameters file, located in the hparams/<alg_name> folder.",
-        required=False,
-    )
-    parser.add_argument(
-        "--glue_eval_interval",
-        type=int,
-        default=5,
-        help="Truncate CounterFact to first n records.",
-    )
-    parser.add_argument(
-        "--model_save_interval",
-        type=int,
-        default=20,
-        help="Truncate CounterFact to first n records.",
     )
     parser.add_argument(
         "--continue_from_run",
@@ -468,16 +393,15 @@ if __name__ == "__main__":
         help="Use cached k/v pairs",
     )
     parser.add_argument(
-        "--model_save_location",
-        type=str,
-        default=None,
-        help="Location to store edited models"
+        "--sequential",
+        type=bool,
+        default=False,
+        help="If we want to do sequential editing or not",
     )
     parser.set_defaults(skip_generation_tests=False, conserve_memory=False)
     args = parser.parse_args()
 
     main(
-        args,
         args.alg_name,
         args.model_name,
         args.hparams_fname,
@@ -487,8 +411,8 @@ if __name__ == "__main__":
         args.skip_generation_tests,
         args.generation_test_interval,
         args.conserve_memory,
+        args.sequential,
         dir_name=args.alg_name,
         num_edits=args.num_edits,
         use_cache=args.use_cache,
-        model_save_location=args.model_save_location
     )
