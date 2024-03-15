@@ -45,4 +45,4 @@ Similarly as above, we've added a sequential flag to evaluate the original ROME 
 ## The Main Update Equation
 The main update equations for ROME can be found in line 221-223 of rebuilding-rome/r_rome/r_rome_main.py .
 
-We build ROME on the code-base on MEMIT and re-implemented the ROME equations within it. It was quite surprising to us that just that change fixed the problem of model collapse when doing sequential editing.
+We build ROME on the code-base of MEMIT and re-implemented the ROME equations within it. It was quite surprising to us that just that change fixed the problem of model collapse when doing sequential editing.
