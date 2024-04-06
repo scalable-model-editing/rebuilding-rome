@@ -6,6 +6,10 @@ from util.hparams import HyperParams
 
 @dataclass
 class ROMEHyperParams(HyperParams):
+    # Options to enable fixes to key computations
+    enable_prompt_keys: bool
+    enable_random_prefix_keys: bool
+
     # Method
     layers: List[int]
     fact_token: str

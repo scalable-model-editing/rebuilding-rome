@@ -33,10 +33,13 @@ def compute_v(
     ][0]
 
     # Compile list of rewriting and KL x/y pairs
-    rewriting_prompts, kl_prompts = [
-        context.format(request["prompt"]) + tok.decode(target_ids[:-1])
-        for context in context_templates
-    ], ["{} is a"]
+    rewriting_prompts, kl_prompts = (
+        [
+            context.format(request["prompt"]) + tok.decode(target_ids[:-1])
+            for context in context_templates
+        ],
+        ["{} is a"],
+    )
     all_prompts = rewriting_prompts + kl_prompts
 
     input_tok = tok(
@@ -163,19 +166,44 @@ def compute_v(
             with torch.no_grad():
                 delta[...] = delta * max_norm / delta.norm()
 
-    target = target_init + delta
+    if hparams.enable_random_prefix_keys:
+        cur_inputs, cur_outputs = [], []
+        # run hook for all random prefixes
+        for context_template in context_templates:
+            cur_input, cur_output = get_module_input_output_at_word(
+                model,
+                tok,
+                layer,
+                context_template=context_template.format(request["prompt"]),
+                word=request["subject"],
+                module_template=hparams.rewrite_module_tmp,
+                fact_token_strategy=hparams.fact_token,
+            )
+            cur_inputs.append(cur_input)
+            cur_outputs.append(cur_output)
 
-    # Retrieve cur_input, the current input to the 2nd MLP layer, and
-    # cur_output, the original output of the 2nd MLP layer.
-    cur_input, cur_output = get_module_input_output_at_word(
-        model,
-        tok,
-        layer,
-        context_template=request["prompt"],
-        word=request["subject"],
-        module_template=hparams.rewrite_module_tmp,
-        fact_token_strategy=hparams.fact_token,
-    )
+        # average the representations across prefixes
+        cur_input = torch.stack(cur_inputs).mean(0)
+        cur_output = torch.stack(cur_outputs).mean(0)
+
+        # target_init is v*, based on output from random prefix computations
+        target = target_init + delta
+    else:
+        # Original ROME code
+        # Retrieve cur_input, the current input to the 2nd MLP layer, and
+        # cur_output, the original output of the 2nd MLP layer.
+        cur_input, cur_output = get_module_input_output_at_word(
+            model,
+            tok,
+            layer,
+            context_template=request["prompt"],  # only done for the prompt being edited
+            word=request["subject"],
+            module_template=hparams.rewrite_module_tmp,
+            fact_token_strategy=hparams.fact_token,
+        )
+
+        # cur_output is v, based on output from prompt-only computations
+        target = cur_output + delta
 
     # Solving the linear system to compute the right vector
     right_vector = (target - cur_output) / torch.dot(cur_input, left_vector)

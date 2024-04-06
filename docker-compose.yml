@@ -1,0 +1,21 @@
+# version: '3.8'
+services:
+  rebuilding-rome:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./:/workspace/rebuilding-rome/
+      - ~/.cache/huggingface/:/.cache/huggingface/
+      - ./:/code
+    # set environment variables
+    deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: [gpu]
+    command: tail -f /dev/null
+    ipc: host
+ 
