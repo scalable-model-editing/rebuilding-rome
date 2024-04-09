@@ -43,7 +43,7 @@ We recommend using Docker to set up a clean dev environment.
 
 `docker compose up -d --build`
 
-To download the datasets used for evaluation, install Git LFS:
+To download the datasets used for evaluation, install Git LFS if needed:
 
 ```shell
 curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash

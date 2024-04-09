@@ -13,6 +13,10 @@ RUN pip install -r requirements.txt
 
 # force re-install CUDA requirements to be compatible with 11.8
 RUN pip install -U --force-reinstall torch --extra-index-url https://download.pytorch.org/whl/cu118
-RUN pip install flash-attn --no-build-isolation
+
+# git lfs
+RUN curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+RUN sudo apt-get install -y git-lfs
+RUN git lfs pull
 
 WORKDIR /workspace/rebuilding-rome
