@@ -1,12 +1,15 @@
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from time import time
 from typing import Tuple, Union
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+sys.path.append("/workspace/rebuilding-rome")
 
 from baselines.efk import EFKHyperParams, EfkRewriteExecutor
 from baselines.ft import FTHyperParams, apply_ft_to_model

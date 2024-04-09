@@ -1,0 +1,8 @@
+numpy
+matplotlib
+seaborn
+transformers
+jupyter
+ipykernel
+scipy
+scikit-learn==1.0.2

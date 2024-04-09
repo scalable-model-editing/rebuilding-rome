@@ -2,9 +2,11 @@ import collections
 import json
 from pprint import pprint
 from typing import List, Optional
-
+import sys
 import numpy as np
 from scipy.stats import hmean
+
+sys.path.append("/workspace/rebuilding-rome")
 
 from util.globals import *
 

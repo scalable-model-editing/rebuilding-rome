@@ -1,8 +1,11 @@
 import json
 import os
+import sys
 from typing import List
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+sys.path.append("/workspace/rebuilding-rome")
 
 from experiments.evaluate import ALG_DICT, HPARAMS_DIR
 from experiments.evaluate import main as eval_main

@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from collections import defaultdict
 
 import numpy
@@ -10,6 +11,8 @@ from datasets import load_dataset
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+sys.path.append("/workspace/rebuilding-rome")
 
 from dsets import KnownsDataset
 from rome.tok_dataset import (
