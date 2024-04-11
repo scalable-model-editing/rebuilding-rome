@@ -11,7 +11,7 @@ $$\hat{W}=W+\Lambda_* \left(C^{-1} k_*\right)^T$$
 
 where
 
-$$\Lambda_* =\frac{v_* - Wk_* }{ (C^{-1} k_* )^T }$$
+$$\Lambda_* =\frac{v_* - Wk_* }{ (C^{-1} k_* )^T k_* }$$
 
 $$k_* =\frac{1}{N} \sum_{j=1}^N k\left(x_j+s\right).$$
 
@@ -23,7 +23,7 @@ $$\hat{W}=W+\Lambda\left(C^{-1} k_*\right)^T$$
 
 where
 
-$$\Lambda=\frac{v_* -Wk}{(C^{-1} k)^T}$$
+$$\Lambda=\frac{v_* -Wk}{(C^{-1} k)^T k}$$
 $$k = k(s)$$
 
 We find that the latter leads to rapid degradation in model performance in a sequential editing setting, and prone to particular edits known as *disabling edits* that render the model unusable post-update. Our experiments focus on unifying the computation of the keys in the update equation, and we study the use of $`k`$ and $`k_*`$.
