@@ -5,4 +5,8 @@ transformers
 jupyter
 ipykernel
 scipy
+higher
+hydra-core
+datasets
+nltk
 scikit-learn==1.0.2

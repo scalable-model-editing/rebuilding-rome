@@ -1,13 +1,13 @@
-import os
-import sys
+import argparse
 import json
 import math
-import seaborn as sns
-import pandas as pd
+import os
+import sys
+
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter
-from matplotlib.ticker import FuncFormatter
-import argparse
+import pandas as pd
+import seaborn as sns
+from matplotlib.ticker import FuncFormatter, ScalarFormatter
 
 sys.path.append("/workspace/rebuilding-rome")
 from useful_functions import save_data
@@ -75,8 +75,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    x_tick_size = 22
-    y_tick_size = 22
+    x_tick_size = 16
+    y_tick_size = 16
     x_lim = 1000
     y_lim = 100
     axis_fontsize = 24

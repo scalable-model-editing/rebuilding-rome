@@ -1,35 +1,42 @@
 import collections
 import json
+import os
+import re
+import sys
 from pprint import pprint
 from typing import List, Optional
-import sys
+
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import hmean
 
 sys.path.append("/workspace/rebuilding-rome")
+from util.globals import RESULTS_DIR
 
-from util.globals import *
 
-
-def main(
-    dir_name,
-    runs: Optional[List],
+def summarize(
+    dir_name=None,
+    runs: Optional[List] = None,
     first_n_cases=None,
-    get_uncompressed=False,
     abs_path=False,
+    get_uncompressed=False,
 ):  # runs = None -> all runs
     summaries = []
     uncompressed = []
 
     for run_dir in (RESULTS_DIR / dir_name if not abs_path else dir_name).iterdir():
+        # for run_dir in [Path(abs_path)]:
+
         # Skip if we're not interested
         if runs is not None and all(run not in str(run_dir) for run in runs):
             continue
 
         # Iterate through all case files
-        cur_sum = collections.defaultdict(lambda: [])
-        files = list(run_dir.glob("case_*.json"))
-        files.sort(key=lambda x: int(str(x).split("_")[-1].split(".")[0]))
+        cur_sum = collections.defaultdict(list)
+        files = list(run_dir.glob("*case_*.json"))
+
+        files.sort(key=lambda x: int(re.search(r"\d+", str(x)).group(0)))
+        file_wise_results = {}
         for case_file in files:
             try:
                 with open(case_file, "r") as f:
@@ -41,7 +48,8 @@ def main(
             if first_n_cases is not None and case_id >= first_n_cases:
                 break
 
-            cur_sum["time"].append(data["time"])
+            if "time" in data:
+                cur_sum["time"].append(data["time"])
 
             for prefix in ["pre", "post"]:
                 # Probability metrics for which new should be lower (better) than true
@@ -91,7 +99,7 @@ def main(
                         )
                     )
 
-                # zsRE evaluation metrics
+                # Accuracy-based evaluation metrics
                 for key in ["rewrite", "paraphrase", "neighborhood"]:
                     sum_key = f"{prefix}_{key}_acc"
                     key = f"{key}_prompts_correct"
@@ -115,9 +123,28 @@ def main(
             "num_cases": num_items,
         }
 
+        # # create plots for metrics
+        # for key, value in cur_sum.items():
+        #     if max(value) > 100:
+        #         continue
+        #     plt.plot(value, label=key)
+
+        # plt.xlabel("Edit")
+        # plt.ylabel("Score")
+        # plt.legend()
+        # # plt.ylim(0, 1)
+        # plt.tight_layout()
+
+        # plt.savefig(os.path.join(run_dir, "evals", "cf_scores.png"))
+
         uncompressed.append(dict(cur_sum, **metadata))
 
-        cur_sum = {k: (np.mean(v), np.std(v)) for k, v in cur_sum.items()}
+        cur_sum_stats = {k: (np.mean(v), np.std(v)) for k, v in cur_sum.items()}
+        for k, v in cur_sum_stats.items():
+            if all(exclude not in k for exclude in ["essence_score", "time"]):
+                # Constant multiplication scales linearly with mean and stddev
+                cur_sum_stats[k] = tuple(np.around(z * 100, 2) for z in v)
+
         for prefix in ["pre", "post"]:
             for k_efficacy, k_generalization, k_specificity in [
                 (
@@ -125,35 +152,43 @@ def main(
                     f"{prefix}_paraphrase_success",
                     f"{prefix}_neighborhood_success",
                 ),
-                (
-                    f"{prefix}_rewrite_acc",
-                    f"{prefix}_paraphrase_acc",
-                    f"{prefix}_neighborhood_acc",
-                ),
+                # (
+                #     f"{prefix}_rewrite_acc",
+                #     f"{prefix}_paraphrase_acc",
+                #     f"{prefix}_neighborhood_acc",
+                # ),
             ]:
-                if k_generalization in cur_sum and k_specificity in cur_sum:
-                    cur_sum[f"{prefix}_score"] = (
-                        hmean(
-                            [
-                                cur_sum[k_efficacy][0],
-                                cur_sum[k_generalization][0],
-                                cur_sum[k_specificity][0],
-                            ]
-                        ),
-                        np.nan,
-                    )
+                if all(
+                    k in cur_sum_stats
+                    for k in [k_efficacy, k_generalization, k_specificity]
+                ):
+                    hmean_list = [
+                        cur_sum_stats[k_efficacy][0],
+                        cur_sum_stats[k_generalization][0],
+                        cur_sum_stats[k_specificity][0],
+                    ]
+
+                    # if f"{prefix}_ngram_entropy" in cur_sum:
+                    #     hmean_list.append(2 ** (cur_sum[f"{prefix}_ngram_entropy"][0] / 100))
+                    # if f"{prefix}_reference_score" in cur_sum:
+                    #     hmean_list.append(cur_sum[f"{prefix}_reference_score"][0])
+
+                    cur_sum_stats[f"{prefix}_score"] = (hmean(hmean_list), np.nan)
                     break
 
-        for k, v in cur_sum.items():
-            if all(exclude not in k for exclude in ["essence_score", "time"]):
-                # Constant multiplication scales linearly with mean and stddev
-                cur_sum[k] = tuple(np.around(z * 100, 2) for z in v)
+        # dump results to file
+        res = dict(cur_sum_stats, **metadata)
+        os.makedirs(os.path.join(run_dir, "evals"), exist_ok=True)
+        with open(run_dir / "evals" / "summary.json", "w") as f:
+            json.dump(res, f)
 
-        cur_sum.update(metadata)
-        pprint(cur_sum)
-        summaries.append(cur_sum)
+        print(metadata)
+        cur_sum_stats.update(metadata)
+        pprint(cur_sum_stats)
+        summaries.append(cur_sum_stats)
 
-    return uncompressed if get_uncompressed else summaries
+    # return uncompressed if get_uncompressed else summaries
+    return cur_sum
 
 
 if __name__ == "__main__":
@@ -177,10 +212,18 @@ if __name__ == "__main__":
         help="Restricts evaluation to first n cases in dataset. "
         "Useful for comparing different in-progress runs on the same slice of data.",
     )
+    parser.add_argument(
+        "--path",
+        type=str,
+        default=None,
+        help="Restricts evaluation to first n cases in dataset. "
+        "Useful for comparing different in-progress runs on the same slice of data.",
+    )
     args = parser.parse_args()
 
-    main(
+    summarize(
         args.dir_name,
         None if args.runs is None else args.runs.split(","),
         args.first_n_cases,
+        args.path,
     )

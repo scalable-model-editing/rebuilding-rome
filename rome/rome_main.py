@@ -31,6 +31,18 @@ def apply_rome_to_model(
     :return: (1) the updated model, (2) an original copy of the weights that changed
     """
 
+    assert (
+        hparams.enable_prompt_keys != hparams.enable_random_prefix_keys
+    ), "Both prompt and random prefix keys are enabled"
+
+    if not hparams.original_implementation:
+        print(
+            "Using key modification method:",
+            "use_prompt_keys"
+            if hparams.enable_prompt_keys
+            else "use_random_prefix_keys",
+        )
+
     if copy:
         model = deepcopy(model)
 
