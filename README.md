@@ -1,7 +1,5 @@
 # Rebuilding ROME : Resolving Model Collapse during Model Editing
 
-This repo builds on [Rebuilding ROME](https://github.com/scalable-model-editing/rebuilding-rome) and the [original ROME codebase](https://github.com/kmeng01/ROME).
-
 ## Changes to the update equation
 
 We focus on the way the MLP keys ($`k`$ such that $`Wk=v`$) are computed. See the `rome/compute_u.py` and `rome/compute_v.py` scripts for details.
