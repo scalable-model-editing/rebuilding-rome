@@ -53,3 +53,26 @@ python experiments/evaluate.py \
     --ds_name=cf \
     --sequential
 ```
+
+
+## How to Cite
+If you find our work useful, please cite it using the following:
+
+```bibtex
+@article{gupta2024rebuilding,
+  title={Rebuilding ROME: Resolving Model Collapse during Sequential Model Editing},
+  author={Gupta, Akshat and Anumanchipalli, Gopala},
+  journal={arXiv preprint arXiv:2403.07175},
+  year={2024}
+}
+```
+
+```bibtex
+@article{gupta2024model,
+  title={Model Editing at Scale leads to Gradual and Catastrophic Forgetting},
+  author={Gupta, Akshat and Rao, Anurag and Anumanchipalli, Gopala},
+  journal={arXiv preprint arXiv:2401.07453},
+  year={2024}
+}
+```
+
